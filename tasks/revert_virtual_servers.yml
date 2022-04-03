@@ -1,0 +1,14 @@
+---
+- name: Revert Virtual Servers to Include Original Addressing Schema
+  bigip_virtual_server:
+    provider: "{{ provider }}"
+    name: "{{ item.name }}"
+    destination: "{{ item.destination }}"
+    port: "{{ item.port }}"
+  loop:
+    - name: administration.dunsmere.org
+      destination: 100.100.100.10
+      port: 22
+    - name: home.dunsmere.org
+      destination: 100.100.100.10
+      port: 80

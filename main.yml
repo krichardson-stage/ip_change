@@ -1,0 +1,77 @@
+---
+- hosts: all
+  gather_facts: no
+  connection: local
+
+  vars_prompt:
+    - name: f5_username
+      prompt: "Enter F5 Username"
+      private: no
+      default: "{{ lookup('env','USER') }}"
+    - name: f5_password
+      prompt: "Enter F5 Password"
+    - name: type
+      prompt: "Modify (m) or Revert (r)..."
+      private: no
+
+  vars:
+    provider:
+      server: "{{ mgmt_ip | default(ansible_host) }}"
+      user: "{{ f5_username }}"
+      password: "{{ f5_password }}"
+      server_port: "{{ f5_port | default('443') }}"
+      validate_certs: no
+
+  collections:
+    - f5networks.f5_modules
+
+  tasks:
+
+    - block: # Provides assertion that second block will only run on the Active unit.
+      - name: Show Active Status
+        raw: show /cm failover-status
+        register: failover
+
+      - name: Active Status Assertion
+        assert:
+          that: "'ACTIVE' in failover.stdout_lines[5]"
+
+    - block:
+      - name: List Virtual Servers
+        bigip_device_info:
+          gather_subset:
+            - virtual-servers
+          provider: "{{ provider }}"
+        register: virtual_servers
+
+      - name: Print Virtual Servers List
+        debug:
+          var: virtual_servers.virtual_servers | json_query('[*].[name,destination_address,destination_port]')
+
+    - block:
+      - name: Import Tasks to Modify Virtual Servers
+        import_tasks: tasks/modify_virtual_servers.yml
+        when: type is search("m")
+      
+      - name: Import Tasks to Revert Virtual Servers
+        import_tasks: tasks/revert_virtual_servers.yml
+        when: type is search("r")
+
+    - block:
+      - name: List Virtual Servers
+        bigip_device_info:
+          gather_subset:
+            - virtual-servers
+          provider: "{{ provider }}"
+        register: virtual_servers
+
+      - name: Print Virtual Servers List
+        debug:
+          var: virtual_servers.virtual_servers | json_query('[*].[name,destination_address,destination_port]')
+
+    - block: # Save system configuration and sync to group
+      - name: Save Configuration and Sync to Standby
+        raw: "{{ item }}"
+        loop:
+          - save /sys config
+          - run /cm config-sync to-group "{{ sync_group }}"
